@@ -1,6 +1,6 @@
 Biblio
 
-Biblio est un test technique visant à développer des APIs CRUD pour la gestion des livres (books), des utilisateurs (users), ainsi que des notations (commentaires et votes).
+Biblio est un test technique visant à développer des APIs CRUD pour la gestion des livres (books), des utilisateurs (users), ainsi que des notations (commentaires et votes), en utilisant MongoDB et Mongoose comme ORM.
 
 Getting Started
 
@@ -20,41 +20,146 @@ Ensuite, ouvrez http://localhost:3000 dans votre navigateur pour voir le résult
 
 Vous pouvez commencer à modifier la page en éditant le fichier app/page.tsx. La page se mettra automatiquement à jour au fur et à mesure des modifications.
 
-Utilisation des polices
+Configuration de la Base de Données
 
-Ce projet utilise next/font pour optimiser et charger automatiquement Geist, une nouvelle famille de polices créée par Vercel.
+MongoDB et Mongoose
 
-En savoir plus
+Le projet utilise MongoDB pour stocker les données et Mongoose comme ORM pour interagir avec la base de données.
 
-Pour en savoir plus sur Next.js, consultez les ressources suivantes :
+Installation
 
-Documentation Next.js : Découvrez les fonctionnalités et l'API de Next.js.
+Assurez-vous d'avoir MongoDB installé et en cours d'exécution. Vous pouvez également utiliser un service cloud comme MongoDB Atlas.
 
-Apprendre Next.js : Un tutoriel interactif pour maîtriser Next.js.
+Ajoutez Mongoose à votre projet :
 
-Vous pouvez également consulter le référentiel GitHub de Next.js. Vos retours et contributions sont les bienvenus !
+npm install mongoose
 
-Déploiement sur Vercel
+Connexion à MongoDB
 
-La méthode la plus simple pour déployer votre application Next.js est d'utiliser la plateforme Vercel, créée par les auteurs de Next.js.
+Créez un fichier config/db.js pour configurer la connexion à MongoDB :
 
-Consultez notre documentation sur le déploiement pour plus de détails.
+// config/db.js
+const mongoose = require("mongoose");
 
-Fonctionnalités demandées
+const connectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    console.log("MongoDB connecté avec succès !");
+  } catch (error) {
+    console.error("Erreur de connexion à MongoDB :", error.message);
+    process.exit(1);
+  }
+};
 
-Books (Livres) :
+module.exports = connectDB;
 
-Création, lecture, mise à jour et suppression (CRUD).
+Ajoutez votre URI MongoDB dans un fichier .env :
 
-Users (Utilisateurs) :
+MONGO_URI=mongodb://localhost:27017/biblio
+# Pour MongoDB Atlas :
+# MONGO_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/biblio?retryWrites=true&w=majority
 
-Création, lecture, mise à jour et suppression (CRUD).
+Importez et exécutez la connexion dans votre fichier principal (server.js ou app.js) :
 
-Notations (Commentaires et Votes) :
+const connectDB = require("./config/db");
 
-Ajout de commentaires.
+connectDB();
 
-Système de vote.
+Modèles Mongoose
+
+User Model (Utilisateur)
+
+const mongoose = require("mongoose");
+const bcrypt = require("bcrypt");
+
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+});
+
+// Méthode pour chiffrer le mot de passe avant de sauvegarder
+userSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+  next();
+});
+
+const User = mongoose.model("User", userSchema);
+
+module.exports = User;
+
+Book Model (Livre)
+
+const mongoose = require("mongoose");
+
+const bookSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  author: { type: String, required: true },
+  publishedDate: { type: Date, required: true },
+  genre: { type: String, required: true },
+  reviews: [
+    {
+      user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      comment: { type: String },
+      rating: { type: Number, min: 1, max: 5 },
+    },
+  ],
+});
+
+const Book = mongoose.model("Book", bookSchema);
+
+module.exports = Book;
+
+Endpoints MongoDB
+
+Exemple : Ajouter un livre
+
+const Book = require("../models/Book");
+
+const addBook = async (req, res) => {
+  try {
+    const { title, author, publishedDate, genre } = req.body;
+    const book = new Book({ title, author, publishedDate, genre });
+    await book.save();
+    res.status(201).json({ message: "Livre ajouté avec succès", book });
+  } catch (error) {
+    res.status(500).json({ message: "Erreur lors de l'ajout du livre", error });
+  }
+};
+
+module.exports = { addBook };
+
+Exemple : Authentification avec JWT
+
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
+
+const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: "Utilisateur non trouvé" });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(401).json({ message: "Mot de passe incorrect" });
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1d" });
+    res.json({ message: "Connexion réussie", token });
+  } catch (error) {
+    res.status(500).json({ message: "Erreur d'authentification", error });
+  }
+};
+
+module.exports = { login };
+
+Ajoutez une clé secrète pour JWT dans le fichier .env :
+
+JWT_SECRET=ma_super_cle_secrete
 
 Tests
 
@@ -63,3 +168,40 @@ Pour exécuter les tests, utilisez la commande suivante :
 npx jest
 
 Cela exécutera les tests unitaires pour vérifier le bon fonctionnement des fonctionnalités implémentées.
+
+Quelques endpoints pour tester
+
+S'inscrire :
+
+POST http://localhost:3000/api/auth/register
+
+S'authentifier :
+
+POST http://localhost:3000/api/auth/login
+
+Ajouter un livre :
+
+POST http://localhost:3000/api/book/add?userId=
+
+Filtrer par auteur :
+
+GET http://localhost:3000/api/book/search?author=&publishedDate&sortOrder=asc
+
+Commenter un livre :
+
+POST http://localhost:3000/api/book/review?userId=&bookId=
+
+Points essentiels
+MongoDB pour la persistance des données.
+Mongoose pour la gestion des modèles et des relations.
+JWT pour l'authentification sécurisée.
+bcrypt pour le chiffrement des mots de passe des utilisateurs.
+
+
+Ressources pour Next.js
+Documentation officielle Next.js
+Tutoriel interactif Learn Next.js
+Dépôt GitHub de Next.js
+https://youtu.be/-j7qvs3zKqM?si=Z4Dir5MdVr3RcUI2
+
+Alhamdoulilah ! 🎉 MongoDB et Mongoose sont d'excellents choix pour gérer des bases de données modernes et évolutives. 🚀
